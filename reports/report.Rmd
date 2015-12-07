@@ -10,6 +10,7 @@ output:
     theme: flatly
   md_document:
     variant: markdown_github
+    preserve_yaml: yes
   word_document:
     reference_docx: assets/tnr_style.docx
 csl: assets/apa.csl

@@ -1,3 +1,22 @@
+---
+title: "Using Language Input and Lexical Processing to Predict Vocabulary Size"
+author: "Tristan Mahr"
+date: "November 2015"
+output:
+  html_document:
+    css: assets/custom.css
+    fig_caption: yes
+    keep_md: no
+    theme: flatly
+  md_document:
+    variant: markdown_github
+    preserve_yaml: yes
+  word_document:
+    reference_docx: assets/tnr_style.docx
+csl: assets/apa.csl
+bibliography: assets/refs.bib
+---
+
 Some Helpful Context
 --------------------
 
