@@ -2,13 +2,15 @@
 
 Poster presented at 56th Annual Meeting of the Psychonomic Society (Nov. 2015 in Chicago, IL)
 
+[![poster thumbnail](poster/poster_thumbnail.png)](poster/TristanMahr-Psychonomics.pdf)
+
 ## Repository overview
 
 * `data`: data-sets used in the models
 * `poster`: the poster as printed and presented at the conference
 * `R`: helper R script
 * `reports`: a "full-text" write-up companion to the poster
-  * `report.md`: Final, rendered form of write-up
+  * `report.md`: [Final, rendered form of write-up](reports/report.md)
   * `report.Rmd`: RMarkdown file used to generate write-up (text + code to run)
   * `compile.R`: R script to build the html version of write-up
 
