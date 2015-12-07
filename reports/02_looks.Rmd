@@ -1,0 +1,396 @@
+
+### Lexical processing
+
+```{r Eyetracking Preliminaries}
+# Analysis window
+window <- constants$eyetracking$window
+
+# Kids to exclude
+ci_exc <- constants$exclude %>% 
+  map_chr("id")
+
+rwl_exc <- constants$eyetracking$exclude %>% 
+  map_chr("id")
+
+# looking data and trial identifiers are stored separately
+d_looks <- read_csv("data/looks.csv", progress = FALSE)
+d_trials <- read_csv("data/trials.csv") %>%
+  select(TrialID:TrialNo)
+
+# Combine them
+d <- d_trials %>%
+  inner_join(d_looks) %>%
+  select(-LookID, -TrialID) %>% 
+  # Apply exclusions
+  filter(Subj %not_in% ci_exc, Subj %not_in% rwl_exc)
+```
+
+
+```{r Eyetracking First Look}
+# Proportion of looking to target at 60 Hz
+looks <- d %>%
+  AggregateLooks(Subj + Time ~ GazeByImageAOI) %>%
+  tbl_df
+
+# Helper to create a data-frame of times and bin numbers
+create_bin_nums <- function(df, bin_width = 12) {
+  set_median_times <- . %>% 
+    group_by(Bin) %>% 
+    mutate(MedianTime = round(median(Time), -2)) %>% 
+    ungroup
+
+  bin_mapping <- data_frame(
+    Time = df$Time %>% unique %>% sort,
+    Bin = AssignBins(Time, bin_width)) %>% 
+    set_median_times
+  
+  stopifnot(n_distinct(bin_mapping$MedianTime) == n_distinct(bin_mapping$Bin))
+  bin_mapping
+}
+
+# Downsample the looking data to 5 Hz using 200-ms (12-frame) bins
+d_first_pass <- d %>% filter(between(Time, -5, 1990))
+raw_bin_nums <- create_bin_nums(d_first_pass)
+
+# Compute proportions inside the bins
+binned <- d_first_pass %>% 
+  left_join(raw_bin_nums) %>% 
+  AggregateLooks(Subj + MedianTime + Bin ~ GazeByImageAOI) %>% 
+  as.tbl %>% 
+  rename(Time = MedianTime)
+
+# We want to plot a comparison of 60 Hz vs 5 Hz, so make a Rate column and
+# combine aggregations of looks
+looks_for_plot <- looks %>% 
+  select(Subj, Time, Proportion) %>% 
+  mutate(Rate = "Raw, 60 Hz")
+
+binned_for_plot <- binned %>% 
+  select(Subj, Time, Proportion) %>% 
+  mutate(Rate = "Reduced, 5 Hz")
+
+for_plot <- bind_rows(looks_for_plot, binned_for_plot)
+
+p_sampling <- ggplot(for_plot) +
+  aes(x = Time, y = Proportion) +
+  # mean_cl_boot: basic nonparametric bootstrap for obtaining confidence limits
+  # for the population mean without assuming normality"
+  stat_summary(fun.data = mean_cl_boot, geom = "pointrange") +
+  geom_line(aes(group = Subj), alpha = .1) +
+  facet_wrap("Rate") +
+  xlab("Time relative to target onset (ms)") +
+  ylab("Proportion of looking to target") +
+  theme_bw(base_size = 12)
+```
+
+```{r Eyetracking Data Cleaning}
+# Apply analysis window
+d_window <- d %>% filter(between(Time, min(window), max(window)))
+
+# Determine which trials have more than 50% missing data during analysis window
+trial_level <-  d_window %>%  
+  AggregateLooks(Subj + Basename + TrialNo ~ GazeByImageAOI) %>% as.tbl %>% 
+  mutate(Remove = .5 <= PropNA) %>% 
+  select(Subj, Basename, TrialNo, PropNA, Remove)
+
+# Which kids have more than 50% missing data?
+kids_to_drop <- trial_level %>% 
+  group_by(Subj) %>% 
+  summarise(trials = n(), 
+            bad_trials = sum(Remove), 
+            usable_rate = mean(!Remove)) %>% 
+  filter(usable_rate < .5)
+
+# Trials from non-excluded kids with more than 50% missing data
+bad_trials <- trial_level %>% 
+  filter(Remove) %>% 
+  # Take out excluded kids so we can report how many additional trials were
+  # dropped
+  anti_join(kids_to_drop)
+
+# Apply exclusions  
+d_clean <- d_window %>% 
+  anti_join(kids_to_drop) %>% 
+  anti_join(bad_trials)
+
+# Add the bin numbers
+bins_clean <- create_bin_nums(d_clean)
+d_clean <- left_join(d_clean, bins_clean)
+
+# Compute proportions in the bins
+looks_clean <- d_clean %>% 
+  AggregateLooks(Subj + MedianTime + Bin ~ GazeByImageAOI) %>% 
+  as.tbl %>% 
+  rename(Time = MedianTime)
+
+looks_clean_raw <-  d_clean %>% 
+  AggregateLooks(Subj + Time ~ GazeByImageAOI) 
+
+# Create a spaghetti plot to illustrate individual trajectories
+p_spaghetti <- 
+  ggplot(looks_clean) +
+  aes(x = Time, y = Proportion) + 
+  geom_line(aes(group = Subj), alpha = .3, color = constants$plotting$colors$black) +
+  stat_summary(fun.y = mean, geom = "line", color = constants$plotting$colors$red, size = 1.5) +
+  xlab("Time relative to target onset (ms)") +
+  ylab("Proportion of looking to target") +
+  theme_bw(base_size = 12) + 
+  scale_x_continuous(breaks = c(300, 500, 700, 900, 1100, 1300, 1500))
+
+# (p_spaghetti + ggtitle("Raw looks")) %+% looks_clean_raw
+```
+
+```{r Eyetracking counts}
+trials_leftover <- d_clean %>% select(Subj, Basename, TrialNo) %>% distinct()  
+n_trials <- trials_leftover %>% count() %>% getElement("n")
+n_kids <- trials_leftover %>% count(Subj) %>% nrow()
+```
+
+
+```{r Eyetracking GCM Prelims}
+# Convert from long to wide data
+wide_props <- looks_clean %>%
+  select(Subj, Time, Proportion) %>%
+  mutate(Time = sprintf("T%02.f", Time / 100)) %>%
+  spread(Time, Proportion) %>% 
+  as.data.frame
+
+# Pre-format the mardia test right now
+mard_line <- wide_props %>% select(-Subj) %>% pretty_mardia("skew")
+```
+
+```{r Eyetracking Lavaan}
+lex_proc_models <- list()
+lex_proc_models$m_1 <- "
+  Start =~ 1*T03 + 1*T05 + 1*T07 + 1*T09 + 1*T11 + 1*T13 + 1*T15
+  Shape =~ 0*T03 + 1*T05 +   T07 +   T09 +   T11 +   T13 +   T15
+
+  T03 ~~ T05
+  T05 ~~ T07
+  T07 ~~ T09
+  T09 ~~ T11
+  T11 ~~ T13
+  T13 ~~ T15
+"
+
+lex_proc_models$m_2 <- paste0(lex_proc_models$m_1, "
+  T05 ~~ T09")
+
+# Alternative description where the shape is defined the middle of the curve
+lex_proc_models$m_1_steep <- "
+  Start =~ 1*T03 + 1*T05 + 1*T07 + 1*T09 + 1*T11 + 1*T13 + 1*T15
+  Shape =~ 0*T03 + 1*T09 +   T05 +   T07 +   T11 +   T13 +   T15
+
+  T03 ~~ T05
+  T05 ~~ T07
+  T07 ~~ T09
+  T09 ~~ T11
+  T11 ~~ T13
+  T13 ~~ T15
+"
+
+lex_proc_models$m_2_steep <- paste0(lex_proc_models$m_1_steep, "
+  T05 ~~ T09")
+
+# Alternative where the intercept is peak accuracy
+lex_proc_models$m_3 <- "
+  Peak =~ 1*T03 + 1*T05 + 1*T07 + 1*T09 + 1*T11 + 1*T13 + 1*T15
+  Fall =~ 0*T15 + 1*T13 +   T11 +   T09 +   T07 +   T05 +   T03
+
+  T03 ~~ T05
+  T05 ~~ T07
+  T07 ~~ T09
+  T09 ~~ T11
+  T11 ~~ T13
+  T13 ~~ T15
+"
+
+lex_proc_fits <- list()
+lex_proc_fits$f1 <- growth(lex_proc_models$m_1, wide_props, estimator = "MLR")
+lex_proc_fits$f2 <- growth(lex_proc_models$m_2, wide_props, estimator = "MLR")
+lex_proc_fits$f3 <- growth(lex_proc_models$m_3, wide_props, estimator = "MLR")
+# summary(lex_proc_fits$f1, fit.measures = TRUE)
+# summary(lex_proc_fits$f2, fit.measures = TRUE)
+# summary(lex_proc_fits$f3, fit.measures = TRUE)
+# anova(lex_proc_fits$f1, lex_proc_fits$f2)
+# modindices(lex_proc_fits$f1, sort. = TRUE)
+# modindices(lex_proc_fits$f2, sort. = TRUE)
+```
+
+The outcome measure in eyetracking studies of lexical processing is _accuracy_:
+the proportion of looks to the target image over the course of the trial.
+Figure 2 shows the means and bootstrapped 95% confidence intervals of the raw
+looking data at a 60 Hz sampling rate (left). The data were also downsampled
+into 200-ms bins (right). This 5-Hz sampling rate captured the essential shape
+of the accuracy curve, making the data more amenable the latent growth curve
+analyses used below.
+
+```{r downsampling}
+p_sampling
+```
+
+We determined the analysis window used in the growth curve models empirically [@Barr2008]. 
+At the onset of the target word (0 ms), the accuracy hovered around .25 until it
+begins to rise steadily after 300 ms. Because there are four images, this
+baseline accuracy represented chance performance. Accuracy plateaud at .60 at
+approximately 1,500 ms. On the basis of this growth trajectory, the time window
+for the analyses below set to 300--1,500 ms.
+
+Next, we performed some data screening. A trial was considered unreliable if at
+least 50% of the eyetracking during the analysis window was missing. These
+trials were not reliable because the child did not look at the screen for
+the majority of the trial. We excluded `r nrow(kids_to_drop)` children for whom
+the majority of their trials were unreliable. We excluded `r nrow(bad_trials)` 
+unreliable trials from the remaining `r n_kids` children. The
+number of trials remaining in the final data-set was `r n_trials`. The
+spaghetti plot in Figure 3 shows the individual looking patterns for these remaining 
+children and trials.
+
+```{r spaghetti raw}
+p_spaghetti
+```
+
+#### Latent growth curve model of lexical processing
+
+In a latent growth curve model, the values at each measurement occasion serve as
+indicators for latent variables that describe the growth of those values. Our
+model estimated two latent variables: 1) _Start_, the proportion of looks to
+target at 300 ms, and 2) _Shape_, the change in accuracy from 300 ms to 500 ms.
+
+The loading from Shape to 300 ms was fixed to 0, and the loading from Shape to
+500 ms was fixed to 1. The remaining loadings from Shape onto the accuracy
+indicators were freed so that these bin-to-bin changes could be freely estimated
+by the model. In this respect, the model was able to capture a nonlinear
+pattern of growth with a single latent variable [hence, the name _Shape_, 
+@Kaplan2009, p. 169]. We also estimated covariances between each pair of 
+successive bins. The structure of the growth model is shown in Figure 4 
+(without intercepts). The dashed loadings were fixed and the 
+solid ones were freely estimated. Omitted are the
+intercept terms. 
+
+```{r latent gca}
+semPaths(lex_proc_fits$f1, intercepts = FALSE, layout = "tree", nCharNodes = 0)
+```
+The data were not multivariate normal (`r mard_line`). Therefore, the model was 
+fit using maximum likelihood with robust standard errors and a scaled test 
+statistic. Model fit was initially inadequate [`r pretty_model_fit(lex_proc_fits$f1)`, 
+`r pretty_BIC(lex_proc_fits$f1)`]. Inspection of the fit indices suggest the addition of a 
+covariance between the 500-ms and 900-ms accuracy indicators. The revised model 
+had a significantly improved model fit [`r pretty_model_fit(lex_proc_fits$f2)`, 
+`r pretty_BIC(lex_proc_fits$f2)`]. 
+
+```{r Parameter Table}
+p_table <- lex_proc_fits$f2 %>% parameterestimates(ci = FALSE) %>% 
+  mutate_each(funs(fixed_digits(., 3)), est, z) %>%
+  mutate(se = fixed_digits(se, 4),
+         pvalue = format_pval(pvalue),
+         op = expand_ops(lhs, op, rhs),
+         # Ugh. fixed_digits(NA, 3) returns "   NA"
+         z = str_trim(z)) %>% 
+  select(op, lhs, rhs, est:pvalue)
+
+drops_1 <- p_table %>% filter(op == "Intercept", z == "NA")
+drops_2 <- p_table %>% filter(lhs == "Start", op == "Loading")
+p_table <- p_table %>% 
+  anti_join(drops_1) %>% 
+  anti_join(drops_2) %>% 
+  arrange(op, desc(lhs), rhs)
+
+p_table <- p_table %>% mutate(rhs = ifelse(op == "Variance", "", rhs)) %>% 
+  rename(`Estimate` = est,
+           SE = se, `_z_` = z, `_p_` = pvalue,
+           Type = op) %>% 
+  filter(Type != "Variance", Type != "Covariance")
+  
+kables$gcm <- kable(
+  p_table, type = "pandoc",
+  align = c("l", "l", "l", "r", "r", "r", "r"))
+# summary(lex_proc_fits$f2, standardized = TRUE, fit.measures = TRUE, rsquare = TRUE)
+```
+
+```{r Factor Means}
+start_mean <- parameterestimates(lex_proc_fits$f2) %>% 
+  filter(lhs == "Start", op == "~1") %>% 
+  getElement("est") %>% 
+  round(3) %>% 
+  remove_leading_zero
+
+shape_mean <- parameterestimates(lex_proc_fits$f2) %>% 
+  filter(lhs == "Shape", op == "~1") %>% 
+  getElement("est") %>% 
+  round(3) %>% 
+  remove_leading_zero
+```
+
+The intercept of the Start factor was `r start_mean`, corresponding to chance
+performance. The intercept of the Shape factor was `r shape_mean` which was the
+predicted average change from 300 to 500 ms, adjusted for measurement error. The
+other loadings are multiples of this change in proportions. Table 3 reports
+loadings from the Shape factor onto each of the eyetracking windows. The
+nonlinear pattern of growth is evident in how the loadings do not change by a
+fixed from loading to loading.
+
+```{r Lexical Processing Table}
+kables$gcm
+```
+
+```{r Lexical Processing Fitted Values}
+pred_gc <- predict(lex_proc_fits$f2) %>% as.data.frame
+
+long_ests <- parameterestimates(lex_proc_fits$f2) %>% 
+  filter(lhs == "Shape", op == "=~") %>% 
+  select(rhs, est)
+
+starts <- pred_gc$Start %*% t(rep(1, nrow(long_ests)))
+changes <- pred_gc$Shape %*% t(long_ests$est)
+values <- starts + changes
+
+values <- values %>% as.data.frame %>% 
+  setNames(long_ests$rhs) %>% 
+  mutate(Subj = wide_props$Subj)
+
+full_ests <- values %>% 
+  gather(Bin, Proportion, -Subj) %>% 
+  mutate(Time = extract_numeric(Bin) * 100)
+
+p_spaghetti_est <- 
+  ggplot(full_ests) +
+  aes(x = Time, y = Proportion) + 
+  geom_line(aes(group = Subj), alpha = .3, color = constants$plotting$colors$black) +
+  xlab("Time relative to target onset (ms)") +
+  ylab("Proportion of looking to target") +
+  theme_bw(base_size = 12) + 
+  scale_x_continuous(breaks = c(300, 500, 700, 900, 1100, 1300, 1500))
+```
+
+The spaghetti plot in Figure 5 shows the growth trajectories as fitted by the model. 
+
+```{r Spaghetti Plot of Fits}
+p_spaghetti_est
+```
+
+```{r Poster Looking Data Plot}
+# The plot creates the three panels in the poster
+stages <- c("Raw, 60 Hz", "Reduced, 5 Hz", "Model Fit")
+looks_clean_raw$Stage <- stages[1]
+looks_clean$Stage <- stages[2]
+full_ests$Stage <- stages[3]
+
+three_stages <- full_ests %>% 
+  select(-Bin) %>% 
+  bind_rows(looks_clean_raw, looks_clean) %>% 
+  mutate(Stage = Stage %>% factor(levels = stages))
+  
+p_spaghetti <- ggplot(three_stages) +
+  aes(x = Time, y = Proportion) + 
+  geom_line(aes(group = Subj), alpha = .2, color = constants$plotting$colors$black) +
+  stat_summary(fun.y = mean, geom = "line",
+               color = constants$plotting$colors$red, size = 1.5) +
+  xlab("Time relative to target onset (ms)") +
+  ylab("Proportion of looking to target") +
+  theme_bw(base_size = 14) + 
+  scale_x_continuous(breaks = c(300, 500, 700, 900, 1100, 1300, 1500)) + 
+  facet_grid(~Stage)
+# p_spaghetti
+```
+

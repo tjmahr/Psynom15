@@ -1,0 +1,249 @@
+### Factor analysis of language input measures
+
+```{r LENA Prep}
+awc_t1 <- read_csv("data/lena_averages.csv") %>% 
+  rename(Subject = ParticipantID)
+
+names(awc_t1) <- names(awc_t1) %>% 
+  str_replace("Prop_", "") %>% 
+  str_replace("_Hourly", "")
+
+# Kids with unreliable LENAs
+lena_exc <- constants$lena$exclude$timepoint1 %>% map_chr("id")
+  
+# CI users
+ci_users <- constants$exclude %>% map_chr("id")
+
+# Apply exclusions
+lena_t1 <- awc_t1 %>%
+  filter(constants$lena$rules$min_hours <= Hours,
+         Subject %not_in% lena_exc,
+         Subject %not_in% ci_users) %>%
+  select(-Study, -Hours, -Silence, -Noise, -CVC) %>% 
+  rename(WordsPerHour = AWC, CTCPerHour = CTC)
+
+# Count kids
+lena_efa <- list(
+  n_kids = n_distinct(awc_t1$Subject),
+  n_left = n_distinct(lena_t1$Subject)
+)
+
+just_stats <- lena_t1 %>% select(-Subject)
+```
+
+```{r LENA Percentiles}
+# Load norms from helper file
+lena_norms <- constants$lena$norms %>%
+  # Convert 10 lists into 10 one-row dfs and combine
+  lapply(as_data_frame) %>%
+  bind_rows
+
+# Compute sample percentiles for 12-Hour AWCs
+sample_percentiles <- (lena_t1$WordsPerHour * 12) %>%
+  quantile(probs = lena_norms$Percentile / 100) %>%
+  round
+
+# Attach to norms
+lena_norms <- lena_norms %>%
+  mutate(Sample = sample_percentiles) %>%
+  arrange(desc(Percentile))
+
+kables$lena_percentiles <- kable(
+  lena_norms,
+  format = "markdown",
+  col.names = c("Percentile", "Norm AWC", "Sample AWC"),
+  caption = "Percentiles of 12-hour adult word counts for LENA norms and this sample.",
+  align = c("r", "r", "r"))
+```
+
+```{r LENA PCA}
+# Create a data-frame summary of a PCA
+tidy_pca <- function(pca) {
+  eigenvalues <- pca$values
+  data_frame(Component = seq_along(eigenvalues), Eigenvalue = eigenvalues)
+}
+
+pca_lena <- just_stats %>%
+  na.omit %>%
+  principal(nfactors = 0, rotate = "none") %>%
+  tidy_pca
+
+p_scree <- ggplot(pca_lena) +
+  aes(x = Component, y = Eigenvalue) +
+  geom_hline(yintercept = 1, linetype = "dashed") +
+  geom_point(size = 3) +
+  geom_line() +
+  labs(x = "Component", y = "Eigenvalues of components") +
+  theme_bw(base_size = 12)
+```
+
+```{r LENA EFA}
+# Make a shortcut fa function that also skips models which raise warnings
+fa_ml_promax <- function(...) {
+  # Store the arguments in a list so we can extract the nfactors argument
+  dots <- list(...)
+  args <- c(dots, rotate = "promax", fm = "ml", oblique.scores = TRUE)
+  # Try the model. If there's a warning, print the number of factors, print the
+  # warning, and return NULL instead.
+  tryCatch(do.call(fa, args), warning = function(c) {
+    warnings <- paste0("Skipping model with nfactors = ", args$nfactors,
+                       ": ", conditionMessage(c))
+    warning(warnings, call. = FALSE)
+    NULL
+  })
+}
+
+fa_base <- list(
+  a = fa_ml_promax(just_stats, nfactors = 1),
+  b = fa_ml_promax(just_stats, nfactors = 2),
+  c = fa_ml_promax(just_stats, nfactors = 3)
+)
+
+```
+
+```{r R Version}
+r_vers <- sprintf("%s.%s", R.version$major, R.version$minor)
+```
+
+Recordings from `r lena_efa$n_kids` were collected. Of these, 
+`r length(lena_exc)` were excluded because the recording was less than 10 hours
+long or because of reported difficulty using the recorder. An additional 
+`r length(ci_users)` recordings from children with cochlear implants were
+excluded.
+
+The children in this sample conformed to prior norms [@LENATalk, p. 10]. Table
+1 shows the Adult Word Count percentiles for this sample and for the sample
+used to establish the LENA norms.
+
+```{r LENA norms}
+kables$lena_percentiles
+```
+
+We performed an exploratory factor analysis using the measurements of language
+input from the LENA recordings. We used the average hourly adult word count,
+average hourly conversational turn count, and average hourly proportion of
+meaningful speech, distant speech, and television. We did not include the
+hourly proprortions of noise and silence, because these inputs were just the
+absense of speech. We expected that the speech-related input measures (adult
+words, conversation turns, meaningful speech) would load onto a coherent
+language input factor. We had no a priori hypotheses about the other measures
+of audio environment, except for the expectation TV would be a negative
+indicator for the language input factor because added television input would
+take away from other sources of input.
+
+Analyses were performed in `R` (vers. `r r_vers`). Exploratory factor analysis
+was conducted using the `psych` package [vers. `r packageVersion("psych")`, 
+@psych], and confirmatory factor analysis was performed using `lavaan` [vers. 
+`r packageVersion("lavaan")`, @lavaan].
+
+We initially explored the factor structure of the data using principal
+components analysis. The eigenvalue decomposition suggested that 2--3 factors
+may underlie these five measures. We conducted a series of exploratory factor
+analyses, examining models with 2, and 3 underlying factors. All analyses used
+promax (oblique) rotation and maximum likelihood estimation. The 2-factor and
+3-factor models could not be estimated, due to Heywood cases. Nevertheless, in
+the two-factor model, adult word count, conversational turn count, and
+meaningful speech measures loaded strongly onto a shared factor. The second
+factor contained a Heywood case (the loading from TV).
+
+```{r LENA CFA Mardia}
+cfa_data <- lena_t1 %>%
+  select(-Subject) %>%
+  mutate(WordsPerHour = WordsPerHour / 1000,
+         CTCPerHour = CTCPerHour / 100)
+
+# Pre-format the mardia test right now
+mard_line <- pretty_mardia(cfa_data, "kurtosis")
+```
+
+```{r LENA CFA, fig.width = 5, fig.height = 5}
+lena <- "
+  input =~ WordsPerHour + Meaningful + CTCPerHour + TV + Distant
+  Distant ~~ TV
+"
+m_lena <- cfa(lena, cfa_data, estimator = "MLR")
+# summary(m_lena, fit.measures = TRUE, standardized = TRUE, rsquare = TRUE)
+
+# # Bayes
+# library("blavaan")
+# b_lena <- bcfa(lena, cfa_data)
+# summary(b_lena, fit.measures = TRUE, standardized = TRUE, rsquare = TRUE)
+# semPaths(m_lena)
+# plot(b_lena)
+```
+
+```{r LENA CFA Extras}
+# Get SRMR and r-squareds for reporting
+srmr <- fitmeasures(m_lena) %>% getElement("srmr") %>% round(3)
+srmr_line <- pretty_eq("SRMR", srmr)
+
+r2 <- inspect(m_lena, "rsquare") %>%
+  magrittr::multiply_by(100) %>%
+  round(1) %>%
+  as.list
+
+# Make a halfway decent table from the parameter estimates
+factor_params <- m_lena %>%
+  parameterEstimates(ci = FALSE, standardized = FALSE) %>%
+  # No intercepts
+  filter(op != "~1") %>%
+  # Round values and spell out what lavaan operators mean
+  mutate_each(funs(fixed_digits(., 3)), est, z) %>%
+  mutate(se = fixed_digits(se, 4),
+         pvalue = format_pval(pvalue),
+         op = expand_ops(lhs, op, rhs)) %>%
+  # Reorder and rename columns
+  select(op, lhs, rhs, est:pvalue) %>%
+  rename(`Estimate` = est, SE = se, `_z_` = z, `_p_` = pvalue, Type = op)
+
+kables$cfa <- kable(
+  factor_params, format = "markdown",
+  align = c("l", "l", "l", "r", "r", "r", "r"))
+```
+
+Based on the findings of the exploratory factor analysis, we conducted a
+confirmatory factor analysis to examine how the five LENA statistics measured a
+single latent variable for language input. The data were not multivariate normal
+(`r mard_line`), so the model was fit using maximum likelihood with robust
+standard errors and a scaled test statistic. The disturbances of the TV and
+distant speech indicators were allowed to covary because these variables served
+as weak or negative indicators of language input. (Put differently, they
+competed with the meaningful speech indicator.) To ensure that the indicators
+had similar scales of measurement, the adult word counts values were divided by
+1000 and the conversational turn counts by 100. The metric of the language
+input factor was fixed to the (kilo-) words per hour indicator.
+
+The estimated model is shown in Figure 1 with standardized parameter estimates
+to ease interpretation. Parameter estimates are produced in Table 2.
+
+```{r LENA Factor Diagram}
+cfa_fig <- semPaths(
+  optimizeLatRes = TRUE,
+  mar = c(2, 10, 2, 10),
+  curve = 2.5,
+  edge.label.cex = .9,
+  m_lena,
+  nCharNodes = 0,
+  intercepts = FALSE,
+  whatLabels = "std",
+  nDigits = 3,
+  layout = "tree",
+  rotation = 2,
+  sizeLat = 10,
+  sizeMan = 10,
+  nodeLabels = c("Words \nPer Hour", "Meaningful\nSpeech", 
+                 "Conv. Turns\nPer Hour", "TV", "Distant\nSpeech", 
+                 "Language\nInput"))
+```
+
+
+The model obtained an adequate fit of the data [`r pretty_model_fit(m_lena)`]. 
+The input factor explaned very little of the variance in the TV
+and distant speech indicators (`r r2$TV`% and `r r2$Distant`% respectively). It
+did however account for a large amount of the variance in converational turns
+(`r r2$CTCPerHour`%), adult word count (`r r2$WordsPerHour`%), and proportion
+of meaningful speech (`r r2$Meaningful`%).
+
+```{r LENA CFA table}
+kables$cfa
+```

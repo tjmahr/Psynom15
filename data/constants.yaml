@@ -1,0 +1,94 @@
+---
+exclude:
+  - {id: "079L", reason: "CI user"}
+  - {id: "605L", reason: "CI user"}
+  - {id: "608L", reason: "CI user"}
+  - {id: "665L", reason: "CI user"}
+  - {id: "679L", reason: "CI user"}
+
+# Different numeric codings of medu
+edu_codes:
+  lmh:
+    Less Than High School: 1.0
+    GED: 1.0
+    High School Diploma: 1.0
+    Trade School: 2.0
+    Technical/Associate's Degree: 2.0
+    Technical/Associates Degree: 2.0
+    Some College: 2.0
+    College Degree: 3.0
+    Graduate Degree: 3.0
+  lmhh:
+    Less Than High School: 1.0
+    GED: 1.0
+    High School Diploma: 1.0
+    Trade School: 2.0
+    Technical/Associate's Degree: 2.0
+    Technical/Associates Degree: 2.0
+    Some College: 2.0
+    College Degree: 3.0
+    Graduate Degree: 4.0
+  six_point:
+    Less Than High School: 1.0
+    GED: 2.0
+    High School Diploma: 3.0
+    Trade School: 4.0
+    Technical/Associate's Degree: 4.0
+    Technical/Associates Degree: 4.0
+    Some College: 4.0
+    College Degree: 5.0
+    Graduate Degree: 6.0
+
+lena:
+  rules:
+    min_hours: 10
+
+  # 12-hour adult word count percentiles in the LENA norms
+  norms:
+    - {Percentile: 10, Norm: 6003.0}
+    - {Percentile: 20, Norm: 7911.0}
+    - {Percentile: 30, Norm: 9451.0}
+    - {Percentile: 40, Norm: 10875.0}
+    - {Percentile: 50, Norm: 12297.0}
+    - {Percentile: 60, Norm: 13805.0}
+    - {Percentile: 70, Norm: 15516.0}
+    - {Percentile: 80, Norm: 17645.0}
+    - {Percentile: 90, Norm: 20824.0}
+    - {Percentile: 99, Norm: 29428.0}
+
+  # Kids with unreliable LENAs
+  exclude:
+    timepoint1:
+    - {id: "025L", reason: "Paused after 10 hours"}
+    - {id: "035L", reason: "Paused after 09 hours"}
+    - {id: "116L", reason: "Wouldn't wear"}
+    - {id: "608L", reason: "Improper recording (3PM-7AM)"}
+    - {id: "634L", reason: "Improper recording (10AM-4AM)"}
+    - {id: "646L", reason: "Improper recording (5PM-9AM)"}
+    - {id: "677L", reason: "Improper recording (11AM-5AM)"}
+
+  missing_notes:
+    # Currently incomplete (as 2015-12-07)
+    timepoint1:
+    - {id: "003L", reason: "Child refused"}
+    - {id: "004L", reason: "Upload crashed"}
+    - {id: "026L", reason: "Declined"}
+    - {id: "027L", reason: "Declined"}
+    - {id: "047L", reason: "Returned unused"}
+    - {id: "050L", reason: "Returned unused"}
+    - {id: "066L", reason: "Returned unused"}
+    - {id: "068L", reason: "Returned unused"}
+    - {id: "606L", reason: "Child refused"}
+    - {id: "619L", reason: "Child refused"}
+
+eyetracking:
+  exclude:
+    - {id: "091L", reason: "Dropped from study"}
+  window: [195, 1595]
+
+
+plotting:
+  colors:
+    red: "#FF4136"
+    black: "#111111"
+...

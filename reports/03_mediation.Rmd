@@ -1,0 +1,318 @@
+
+### Mediational model
+
+```{r Mediation Prelim}
+demographics <- read_csv("data/tp1.csv") %>% 
+  filter(CImplant != 1) %>% 
+  select(Subj = ParticipantID, Female)
+
+t1 <- read_csv("data/tp1.csv") %>% 
+  filter(CImplant != 1) %>% 
+  select(Subj = ParticipantID, EVT_GSV_T1 = EVT_GSV, Age_T1 = Age)
+
+t2 <- read_csv("data/tp2.csv") %>%
+  filter(CImplant != 1) %>% 
+  select(Subj = ParticipantID, EVT_GSV_T2 = EVT_GSV, Age_T2 = Age)
+
+vocabs <- full_join(t1, t2) %>% 
+  # Rescale GSV for model
+  mutate(EVT_GSV_T2 = EVT_GSV_T2 / 100,
+         EVT_GSV_T1 = EVT_GSV_T1 / 100,
+         EVT_Diff = EVT_GSV_T2 - EVT_GSV_T1)
+
+# Children with TP2 vocabulary scores
+scores <- vocabs %>% filter(!is.na(EVT_GSV_T2))
+
+cfa_data <- lena_t1 %>% 
+  mutate(WordsPerHour = WordsPerHour / 1000,
+         CTCPerHour = CTCPerHour / 100) %>% 
+  rename(Subj = Subject)
+
+# Imagine a Venn diagram with three circles:
+
+# 1. kids with modeled LENA data
+# 2. kids with modeled eyetracking data 
+# 3. kids with vocabulary scores at year two
+
+# How many kids are in the various parts of the diagram?
+
+# Kids in the Venn diagram universe
+# nrow(demographics)
+
+# Kids inside of a circle
+unique_kids <- c(wide_props$Subj, cfa_data$Subj, scores$Subj) %>% unique %>% sort
+# length(unique_kids)
+# unique_kids
+
+# Kids in the intersection of each pair of circles
+vocab_and_looks <- intersect(scores$Subj, wide_props$Subj)
+vocab_and_input <- intersect(scores$Subj, cfa_data$Subj)
+input_and_looks <- intersect(cfa_data$Subj, wide_props$Subj)
+
+participants <- c(vocab_and_input, vocab_and_looks, input_and_looks)
+# n_distinct(participants)
+
+# demographics %>% 
+#   filter(Subj %in% unique_kids) %>% 
+#   distinct %>% 
+#   count(Female)
+
+# Combine all the data-sets together
+looks_input_vocab <- cfa_data %>% 
+  full_join(wide_props) %>% 
+  full_join(vocabs) %>% 
+  select(-starts_with("Age")) %>% 
+  rename(Vocab0 = EVT_GSV_T1, Vocab = EVT_GSV_T2)
+
+# Kids in the three-circle intersection of Venn diagram
+all_three <- looks_input_vocab %>% na.omit
+
+# Mardia checks
+mard_check <- looks_input_vocab %>% select(-Vocab0, -EVT_Diff)
+kurt_line <- pretty_mardia(mard_check, "kurtosis")
+skew_line <- pretty_mardia(mard_check, "skew")
+```
+
+
+```{r}
+super_m <- "
+  # GCM
+  Start =~ 1*T03 + 1*T05 + 1*T07 + 1*T09 + 1*T11 + 1*T13 + 1*T15
+  Shape =~ 0*T03 + 1*T05 +   T07 +   T09 +   T11 +   T13 +   T15
+  T03 ~~ T05
+  T05 ~~ T07
+  T07 ~~ T09
+  T09 ~~ T11
+  T11 ~~ T13
+  T13 ~~ T15
+  T05 ~~ T09
+  Start ~~ Shape
+  
+  # Input CFA
+  Input =~ WordsPerHour + Meaningful + CTCPerHour + TV + Distant
+  Distant ~~ TV
+
+  # Intercepts
+  Vocab + Shape + Start ~ 1
+
+  # Regressions
+  Start ~ i_st*Input
+  Shape ~ i_sh*Input
+  Vocab ~ st_v*Start + sh_v*Shape + i_v*Input
+
+  # Path-tracing effects
+  via_st := i_st*st_v
+  via_sh := i_sh*sh_v
+  indirect := via_st + via_sh
+  total := indirect + i_v
+"
+med_1 <- growth(super_m, looks_input_vocab, estimator = "MLR", missing = "FIML")
+# summary(med_1, fit.measures = TRUE)
+# semPaths(med_1, intercepts = FALSE, layout = "tree", nCharNodes = 0, edgeLabels = "")
+# modindices(med_1, sort. = TRUE)
+```
+
+```{r}
+# This time using TV as a predictor
+super_med_2 <- "
+  # GCM
+  Start =~ 1*T03 + 1*T05 + 1*T07 + 1*T09 + 1*T11 + 1*T13 + 1*T15
+  Shape =~ 0*T03 + 1*T05 +   T07 +   T09 +   T11 +   T13 +   T15
+  T03 ~~ T05
+  T05 ~~ T07
+  T07 ~~ T09
+  T09 ~~ T11
+  T11 ~~ T13
+  T13 ~~ T15
+  T05 ~~ T09
+  Start ~~ Shape
+  
+  # Input CFA
+  Input =~ WordsPerHour + Meaningful + CTCPerHour
+  Input ~ tv_i*TV
+
+  # Intercepts
+  Vocab + Shape + Start ~ 1
+
+  # Regressions
+  Start ~ i_st*Input
+  Shape ~ i_sh*Input
+  Vocab ~ st_v*Start + sh_v*Shape + i_v*Input
+
+  # Path-tracing effects
+  via_st := i_st*st_v
+  via_sh := i_sh*sh_v
+  indirect := via_st + via_sh
+  total := indirect + i_v
+  tv := tv_i * total
+"
+
+med_2 <- growth(super_med_2, looks_input_vocab, estimator = "MLR", missing = "FIML")
+# summary(med_2, fit.measures = TRUE)
+# modindices(med_2, sort. = TRUE)
+```
+
+Finally, we examined whether language input and lexical processing at Time 1
+predicted expressive vocabulary size at Time 2. We added EVT growth scale values
+for `r nrow(scores)` children to the data-set. We combined the factor analysis
+model of language input with the latent growth model of lexical processing. We
+regressed vocabulary size on the Input, Start, and Shape factors. To examine
+whether lexical processing mediated the effect of Input on vocabulary size, we
+also regressed the Start and Shape factors onto Input.
+
+Not every children with vocabulary scores at Time 2 participated in the earlier
+language input or the lexical processing models. Of the `r nrow(scores)`
+children with vocabulary scores, `r length(vocab_and_looks)` contributed
+eyetracking data and `r length(vocab_and_input)` contributed language input
+data. Further, `r nrow(cfa_data)` children contributed input data, 
+`r nrow(wide_props)` contributed eyetracking data, `r length(input_and_looks)` 
+contributed both input and eyetracking data, and `r nrow(all_three)` contributed
+all three kinds of data.
+
+The combined data-set did not obtain multivariate normality (`r skew_line`).
+Conesequently, We fit the model using using maximum likelihood with robust 
+standard errors and a scaled test statistic, and full-information ML estimation
+was used to handle missing data. Growth scale value scores were divided by 100
+so that they would have a comparable scale with other measures in the model.
+
+The fitted model did not obtain an adequate fit of the data 
+(`r pretty_model_fit(med_1)`). Therefore, we revised the structure of the Input
+factor, dropping distant speech as an indicator and changing TV from an
+indicator to a predictor of the Input. The revised model obtained improved but
+still inexact fit of the data (`r pretty_model_fit(med_2)`). We inspected the
+modification indices for this model. The paths with the largest modification
+indices involved reciprocal paths from vocabulary to earlier measures. Such
+paths are chronologically impossible. The final model is shown below.
+
+```{r final model}
+semPaths(med_2,
+         intercepts = FALSE,
+         layout = "tree",
+         nCharNodes = 0,
+         edgeLabels = "")
+```
+
+```{r}
+# Create coefficient table
+full_table <- med_2 %>% 
+  parameterestimates(ci = FALSE, standardized = FALSE) %>% 
+  filter(label != "" || lhs %in% c("Shape", "Input", "Start", "Vocab"), 
+         op != "~~", op != ":=") %>% 
+  mutate_each(funs(fixed_digits(., 3)), est, z) %>%
+  mutate(se = fixed_digits(se, 4),
+         pvalue = format_pval(pvalue),
+         op = expand_ops(lhs, op, rhs),
+         # Ugh. fixed_digits(NA, 3) returns "   NA"
+         z = str_trim(z)) %>% 
+  select(op, lhs, rhs, est:pvalue) %>% 
+  arrange(op, lhs, rhs)  %>% 
+  rename(`Estimate` = est,
+           SE = se, `_z_` = z, `_p_` = pvalue,
+           Type = op)
+
+kables$full <- kable(
+  full_table, type = "pandoc",
+  align = c("l", "l", "l", "r", "r", "r", "r"))
+```
+
+```{r}
+# Extract paths
+med_2_p2 <- med_2 %>% 
+  parameterestimates(ci = FALSE, standardized = FALSE) %>% 
+  filter(label != "" || lhs %in% c("Shape", "Input", "Start", "Vocab"), 
+         op != "~~", !is.na(z))
+
+input_start <- med_2_p2 %>% filter(lhs == "Start", rhs == "Input")
+input_shape <- med_2_p2 %>% filter(lhs == "Shape", rhs == "Input")
+
+input_vocab <- med_2_p2 %>% filter(lhs == "Vocab", rhs == "Input")
+
+start_vocab <- med_2_p2 %>% filter(lhs == "Vocab", rhs == "Start")
+shape_vocab <- med_2_p2 %>% filter(lhs == "Vocab", rhs == "Shape")
+
+input_med <- med_2_p2 %>% filter(label == "indirect")
+input_tot <- med_2_p2 %>% filter(label == "total")
+
+tv_input <- med_2_p2 %>% filter(label == "tv_i")
+tv_vocab <- med_2_p2 %>% filter(label == "tv")
+
+# {row of model summary} => "z = %z, p = %p"
+pretty_z_p <- function(fit_row) {
+  z_part <- pretty_z(fit_row$z)
+  p_part <- pretty_p(fit_row$pvalue)
+  paste(z_part, p_part, sep = ", ")
+}
+
+# rescale and round a regression
+quick_est <- function(fit_row, scale = 1, digits = 3) {
+  round(fit_row$est * scale, digits)
+}
+
+# Extract a row of a model summary using lavaan syntax for row
+get_row <- function(path, model = med_2) {
+  model %>% 
+    parameterestimates(ci = FALSE, standardized = FALSE) %>% 
+    mutate(path_string = str_trim(paste0(lhs, op, rhs))) %>% 
+    filter(path_string == path)
+
+}
+input_mean <- get_row("Input~1", med_2)
+vocab_mean <- get_row("Vocab~1", med_2)
+shape_mean <- get_row("Shape~1", med_2)
+start_mean <- get_row("Start~1", med_2)
+```
+
+Although the model did not obtain an adequate _&chi;_^2^ fit statistic, we
+interpret the regression coefficients among the input, processing and vocabulary
+measures (reported in Table 3.)
+
+```{r}
+kables$full
+```
+
+All four intercepts estimated by the model were significant. Recall the metric
+of the Input variable was fixed to the 1000-word hourly adult word count.
+Therefore, an increase in the input factor by 1 is the equivalent of increasing
+language input by 1000 adult words per hour. For the rest of this section, we
+will refer to the unit of this latent variable as _adult-word equivalents_. The
+estimated average language input was `r quick_est(input_mean, 1000, 0)`
+adult-word equivalents. The estimated starting accuracy in the eyetracking task
+was `r quick_est(start_mean, 100, 1)`%, and the estimated average change from
+300 to 500 ms was `r quick_est(shape_mean, 100, 2)`%. The estimated vocabulary
+score at Time 2 was `r quick_est(vocab_mean, 100, 2)` EVT-2 growth scale value
+units.
+
+Language input did not predict the initial accuracy in the eyetracking task 
+(`r pretty_z_p(input_start)`), but it did significantly predict the Shape factor
+of the latent growth curve model. Increasing home language input by the
+equivalent of 1000 adult-word equivalents increases the growth rate of the
+eyetracking curve by `r quick_est(input_shape, 100, 2)` percentage-points 
+(`r pretty_z_p(input_shape)`). Input had a significant direct effect on later
+vocabulary size. Increasing home language by 1000 adult-word equivalents
+predicted an increase of `r quick_est(input_vocab, 100, 1)` in vocabulary 
+(`r pretty_z_p(input_vocab)`).
+
+Lexical processing also predicted vocabulary. An increase in initial accuracy by
+1 percentage-point predicted an increase in vocabulary scores by 
+`r quick_est(start_vocab, 1, 2)` points (`r pretty_z_p(start_vocab)`). An increase
+in processing rate by .1 percentage-point predicted an increase in vocabulary
+scores by `r quick_est(shape_vocab, .1, 2)` points 
+(`r pretty_z_p(shape_vocab)`).
+
+There was a significant indirect effect of input on vocabulary as mediated by
+the lexical processing factors. Increasing language input a 1,000 adult-word
+equivalents predicted a corresponding increase in vocabulary size by 
+`r quick_est(input_med, 100, 1)` points indirectly (`r pretty_z_p(input_med)`).
+The indirect and direct effects yield a total effect of 
+`r quick_est(input_tot, 100, 1)` vocabulary points. The majority of the effect
+of language input on vocabulary size was indirect, as mediated by the lexical
+processing factors.
+
+Because TV was included as a predictor of language input, we could also estimate
+its effect on vocabulary as mediated by the total effect of language input
+factor. Increasing the proportion of TV input by .05 predicted a corresponding
+decrease in language input by `r -1 * quick_est(tv_input, .05 * 1000, 0)`
+adult-word equivalents (`r pretty_z_p(tv_input)`) which translates into a
+predicted decrease of vocabulary by `r -1 * quick_est(tv_vocab, .05 * 100, 2)`
+points (`r pretty_z_p(tv_vocab)`).
+

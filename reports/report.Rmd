@@ -1,0 +1,280 @@
+---
+title: "Using Language Input and Lexical Processing to Predict Vocabulary Size"
+author: "Tristan Mahr"
+date: "November 2015"
+output:
+  html_document:
+    css: assets/custom.css
+    fig_caption: yes
+    keep_md: no
+    theme: flatly
+  md_document:
+    variant: markdown_github
+  word_document:
+    reference_docx: assets/tnr_style.docx
+csl: assets/apa.csl
+bibliography: assets/refs.bib
+---
+
+```{r knitr setup, echo = FALSE, message = FALSE, warning = FALSE}
+library("knitr")
+# working dir for evaluating code (use parent directory)
+opts_knit$set(root.dir = "../")
+
+opts_chunk$set(
+  comment = "#>",
+  collapse = TRUE,
+  fig.align = "center",
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  fig.path = "./assets/figure/")
+
+# Stores formatted tables until time to drop them in text
+kables <- list()
+```
+
+```{r packages}
+# my eye-tracking package github.com/tjmahr/lookr
+library("lookr")
+
+# readers
+library("readr")
+library("yaml")
+
+# data-frame tools
+library("dplyr")
+library("tidyr")
+library("broom")
+
+# other tools
+library("stringr")
+library("purrr")
+
+# stats
+library("psych")
+library("lavaan")
+library("semPlot")
+
+# output
+library("knitr")
+library("ggplot2")
+
+source("R/utils.R")
+constants <- yaml.load_file("data/constants.yaml")
+```
+
+## Some Helpful Context
+
+I originally wrote this report in May 2015 as a final project for a structural 
+equation modeling course. That context should explain the methodical, 
+showing-my-work level of detail in the analysis sections and the comparatively 
+thin introductory and discussion sections. Two weeks after completing the 
+project, I submitted an abstract based on it for consideration at the 2015 
+Psychonomics conference. I'm including that original report and the scripts and
+data-sets used to produce it as a "full text" companion to the poster.
+
+***
+
+## Abstract
+
+Children learn words by listening to caregivers, and the 
+quantity and quality of early language input predict later language 
+development. Recent research suggests that lexical processing efficiency 
+may mediate the relationship between input and vocabulary growth. We 
+asked whether language input and lexical processing at 28-39 months 
+predicted vocabulary size one year later in 180 preschoolers. Input was 
+measured using adult word counts, conversational turn counts, and 
+proportion of meaningful speech and television in the child’s 
+environment. Lexical processing was measured using accuracy and rate of 
+change on a four-image looking-while-listening eyetracking task. 
+Structural equation modeling showed that both input and lexical 
+processing predicted vocabulary size, but most of the effect of input 
+was mediated by lexical processing. Further, amount of television in the 
+environment negatively influenced vocabulary size. These results further 
+support the hypothesis that children must efficiently process ambient 
+language input to capitalize on learning opportunities. 
+
+## Introduction
+
+Children learn language from their environment. In a sense, children are
+language-learning machines, converting language input from their caregivers
+into linguistic knowledge and spoken language of their own. When deprived of
+this input, they cannot learn language. This is why children with cochlear
+implants are said to have two ages: a biological age and a hearing age, the
+amount of time with access to spoken languge input.
+
+Moreover, we also know that the quantity of input matters for language
+acquisition. The amount of early language input from caregivers predicts
+language development later on [e.g., @HartRisley; @Huttenlocher1991;
+@Hoff2003]. Children who do not receive _enough_ spoken languge input at home
+are at a disadvantage when they enter the classroom.
+
+Children who receive more language input have more opportunities for learning 
+and therefore learn more. Let's call this idea the **additive model of language 
+input**. The additive model is _raison d'être_ for the LENA Research Foundation 
+who offers what is essentially a pedometer for spoken language input. A child
+wears a small recording over the course of a typical day, and proprietary LENA
+software analyzes the recording to generate a summary of the child's language
+input and auditory environment. The LENA Research Foundation has initiated
+high-profile community interventions (e.g., Providence Talks, the Thirty Million
+Words project) built around their device and this additive model of input.
+
+It's clear that the amount of spoken input matters, but it's not entirely clear 
+how ambient language input from caregivers translates in linguistic knowledge 
+and spoken language. There are indications that young children need to _process_
+this spoken language input. Returning the language-learning machine analogy,
+children have to do some processing (i.e., mapping the strings of sounds to
+familiar objects) on language input in order to capitalize on learning
+opportunities. Call this idea the **mediated model of language input**.
+
+Work by Fernald and colleagues has examined lexical processing in young children
+with a number of eyetracking studies. @MarchmanFernald2008 found that accuracy
+and speed of lexical processing at age two predicted language and working memory
+scores at age eight. @Hurtado2008 found that maternal talk at 18 months
+predicted lexical processing speed and vocabulary size at 24 months in a group
+of Spanish-learning children. Moreover, the effect of input on vocbulary size
+was mediated by processing speed. This finding woudl support a mediated model of
+language input, but vocabulary size also mediated the effect of maternal speech
+on processing speed. Because processing and vocabulary size were measured at the
+same time, we have no way of choosing which mediation path result past explains
+the data. At best, we can claim that language input at eighteen months
+predicted two closely related language abilities six months later.
+@Weisleder2013 essentially replicated this study, finding that processing and
+language input at 19 months of age predicted vocabulary size at 24 months.
+Lexical processing, however, mediated the effect of input on vocabulary growth,
+and because lexical processing temporally preceded the vocabulary measures, we
+have a stronger case for the mediated model of language input.  The beneficial 
+effects of language input on later vocabulary size was determined by the ability
+to efficiently process that input.
+
+In the following study, we examine the mediated model of language input by 
+analyzing how language input and lexical processing predict later vocabulary 
+size on year later. This study examines the same mediational model of
+@Weisleder2013 but our study includes older children (many more of them too),
+multiple measures of language input, a different language processing task and
+measurements, and a direct measure of expressive vocabulary.
+
+## Methods and Measurements
+
+### Participants
+
+Children from English-speaking households were recruited as part of a
+longitudinal study. We examined data from the first two time-points of this
+study. At Time 1 in the study, the children were 28--40 months of age. During
+Time 1 we collected our measures of language input and lexical processing. At
+Time 2, we collected the measure of expressive vocabulary when the children
+were 40--52 months of age. Children with cochlear implants were recruited for
+the longitudinal study but excluded from the present analysis. All children
+underwent a hearing screening at both time-points, and they had normal
+development per parent report.
+
+### Language input measurements
+
+Language input data was collected using a LENA digital recorder. As noted
+earlier, this device is a small recording device that is worn by the child in a
+kid-friendly vest. The device records all audible sounds for up to 16 hours.
+The recorder and instructions for using it were given to families.
+Families were instructed to activate the recorder in the morning and record a
+typical day for the child.
+
+After the recording was completed, LENA software analyzed it to generate a
+summary of the child's language environment [@LENAAudio;]. The measure it
+reports for each recording include:
+
+* Hourly word-counts of adult language in the child’s environment
+* Hourly number of child-adult and adult-child conversational turns
+* Hourly proportions of meaningful (close) speech, distant speech, noise,
+  television/electronics, and silence
+* Hourly number of child vocalizations
+
+For each child, we computed the averages of each of these hourly measurements.
+
+### Eyetracking data
+
+As our measure of lexical processing, we used a four-image
+looking-while-listening experiment [@FernaldLWL]. In this paradigm, images of
+objects are presented onscreen followed by a prompt to view one of the images.
+An eyetracker records how the child's gaze location changes in response to
+speech. From these data, we can measure the child's _accuracy_ (how often they
+fixated on the named image) and _processing speed_ (how quickly they fixated on
+the named image).
+
+In our experiment, four photographs of familiar objects were arranged on a
+computer display. During a trial, a spoken prompt directed the child to view
+one of the images (e.g., _find the fly_). One these images was the target word
+(e.g., _fly_). The other three distractor images contained a semantically
+related word (_bee_), a phonologically related word (_flag_), and an unrelated
+word (_pen_).
+
+A Tobii T60XL eyetracker system recorded the location of a child's gaze on
+screen at rate of 60 Hz. Children saw 24 unique trials in an experimental
+block. Two blocks of the experiment (each with different trial orderings and
+images) were administered.
+
+### Spoken vocabulary (output) measurements
+
+Children also received an expressive vocabulary test [EVT-2, @EVT2]. In this
+test, children are presented with images and are asked to name them. For our
+analyses, we used growth scale values (a transformation of the raw score into
+an age-invariant scale).
+
+## Analyses
+
+
+```{r, eval = TRUE, child = "01_efa.Rmd"}
+```
+
+
+```{r, eval = TRUE, child = "02_looks.Rmd"}
+```
+
+
+```{r, eval = TRUE, child = "03_mediation.Rmd"}
+```
+
+## Discussion
+
+In this study we examined how language input and lexical processing during the 
+third year predicted vocabulary size one year later. @Weisleder2013 found that 
+lexical processing fully mediated the effect of language input on vocabulary 
+growth. We only partially replicated this finding because both the direct and 
+indirect effects of language input on vocabulary growth were significant. Given 
+that our sample was 10--20 months older than that of @Weisleder2013, it may be
+the case the mediating and predictive role of lexical processing diminishes with
+age.
+
+### Future Directions
+
+This study is the first draft of a larger exploration of language input,
+lexical processing, and vocabulary growth. As we develop this study and
+analyses, we will also consider the following directions:
+
+* Inclusion of SES as a predictor of language input.
+* Alternative measures of lexical processing such as random slopes and
+  intercepts from mixed-effects growth-curve models [e.g., @Mirman2014].
+* Supplemental measures of lexical processing from a similar eye-tracking task.
+* Examination of whether age or other predictors moderate the mediating role of
+  lexical processing.
+
+## Appendix 
+
+### Input Factor Analysis Model Output
+
+```{r}
+summary(m_lena, fit.measures = TRUE, rsquare = TRUE)
+```
+
+### Latent Growth Curve Model Output
+
+```{r}
+summary(lex_proc_fits$f2, fit.measures = TRUE, rsquare = TRUE)
+```
+
+### Omnibus Mediation Model Output
+
+```{r}
+summary(med_2, fit.measures = TRUE, rsquare = TRUE)
+```
+
+## References
