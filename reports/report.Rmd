@@ -146,7 +146,7 @@ language input at 19 months of age predicted vocabulary size at 24 months.
 Lexical processing, however, mediated the effect of input on vocabulary growth,
 and because lexical processing temporally preceded the vocabulary measures, we
 have a stronger case for the mediated model of language input. The beneficial 
-effects of language input on later vocabulary size was determined by the ability
+effects of language input on later vocabulary size were determined by the ability
 to efficiently process that input.
 
 In the following study, we examine the mediated model of language input by 
