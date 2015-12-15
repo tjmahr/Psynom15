@@ -138,7 +138,7 @@ of Spanish-learning children. Moreover, the effect of input on vocbulary size
 was mediated by processing speed. This finding would support a mediated model of
 language input, but vocabulary size also mediated the effect of maternal speech
 on processing speed. Because processing and vocabulary size were measured at the
-same time, we have no way of choosing which mediation path result past explains
+same time, we have no way of choosing which mediation path result better explains
 the data. At best, we can claim that language input at eighteen months
 predicted two closely related language abilities six months later.
 @Weisleder2013 essentially replicated this study, finding that processing and
